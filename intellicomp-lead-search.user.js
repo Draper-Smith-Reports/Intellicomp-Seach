@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IntelliComp Lead Search (Draper Smith)
 // @namespace    https://github.com/Draper-Smith-Reports/Intellicomp-Seach
-// @version      1.1.0
+// @version      1.2.0
 // @description  Upload a contractor list, look each one up in IntelliComp one at a time (name search + address match), and download the ex mods as a spreadsheet with mod-review links.
 // @match        https://exmod.com/*
 // @match        https://www.exmod.com/*
@@ -252,8 +252,22 @@
   // ---------------------------------------------------------------------------
   const fmtMod = (m) => (/^\d{3}$/.test(m) ? (parseInt(m, 10) / 100).toFixed(2) : m);
 
+  // The 5 mod years shown as columns: next year's mods (published each fall) back 4 years.
+  // In 2026 that's 2027, 2026, 2025, 2024, 2023.
+  const THIS_YEAR = new Date().getFullYear();
+  const MOD_YEARS = [0, 1, 2, 3, 4].map((i) => String(THIS_YEAR + 1 - i));
+
   function buildResult(input, emp, how, srcTag) {
     const active = emp.mods.filter((m) => !m.inactive);
+
+    // One column per year; if a year has more than one active mod (a revision), the newest listed wins.
+    const byYear = {};
+    for (const m of active) if (!(m.year in byYear)) byYear[m.year] = fmtMod(m.mod);
+    const yearCols = {};
+    for (const y of MOD_YEARS) yearCols['ic_mod_' + y] = byYear[y] || '';
+
+    // "Mod rated" = has an active mod for this year or next year
+    const modRated = active.some((m) => parseInt(m.year, 10) >= THIS_YEAR) ? 'Yes' : 'No';
     const cur = active[0];
     const prev = active[1];
     let change = '';
@@ -280,6 +294,8 @@
 
     return {
       ic_status: 'found',
+      ic_mod_rated: modRated,
+      ...yearCols,
       ic_how_matched: how,
       ic_license_check: licenseCheck,
       ic_wcirb: emp.wcirb,
@@ -305,7 +321,7 @@
   }
 
   const OUTPUT_FIELDS = [
-    'ic_status', 'ic_how_matched', 'ic_license_check', 'ic_wcirb', 'ic_wcirb_name', 'ic_wcirb_address',
+    'ic_status', 'ic_mod_rated', ...MOD_YEARS.map((y) => 'ic_mod_' + y), 'ic_how_matched', 'ic_license_check', 'ic_wcirb', 'ic_wcirb_name', 'ic_wcirb_address',
     'ic_contact', 'ic_contact_title', 'ic_phone', 'ic_current_mod_year', 'ic_current_mod', 'ic_prior_mod',
     'ic_mod_change', 'ic_mod_status', 'ic_projected_effective', 'ic_class_codes', 'ic_wc_insurer',
     'ic_wc_policy', 'ic_wc_effective', 'ic_wc_expiration', 'ic_mod_review_link', 'ic_candidates',

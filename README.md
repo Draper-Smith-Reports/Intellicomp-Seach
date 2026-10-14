@@ -38,6 +38,8 @@ Filter the CSLB list down to your counties and trades before loading it; the ful
 | Column | Meaning |
 |---|---|
 | ic_status | found, needs review, not found, skipped (no name), or error |
+| ic_mod_rated | **Yes** if the risk has an active ex mod for this year or next year, otherwise **No** |
+| ic_mod_2027 … ic_mod_2023 | the active ex mod for each of the last 5 mod years (column years move forward each calendar year; blank = no mod that year) |
 | ic_how_matched | which address details matched, "only result", or "you picked" |
 | ic_license_check | whether IntelliComp's CSLB tab shows the same license # as your list |
 | ic_wcirb, ic_wcirb_name, ic_wcirb_address | WCIRB bureau number, names and address |
