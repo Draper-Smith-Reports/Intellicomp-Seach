@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IntelliComp Lead Search (Draper Smith)
 // @namespace    https://github.com/Draper-Smith-Reports/Intellicomp-Seach
-// @version      1.0.0
+// @version      1.1.0
 // @description  Upload a contractor list, look each one up in IntelliComp one at a time (name search + address match), and download the ex mods as a spreadsheet with mod-review links.
 // @match        https://exmod.com/*
 // @match        https://www.exmod.com/*
@@ -229,9 +229,9 @@
     if (cNum && iNum && cNum === iNum) { score += 2; reasons.push('street #'); }
     if (cStreet.length >= 4 && iStreet.startsWith(cStreet)) { score += 1; reasons.push('street'); }
 
-    const term = searchTermFor(input.name);
     const active = cand.names.filter((n) => !n.inactive);
-    if (active.some((n) => searchTermFor(n.text) === term)) { score += 1; reasons.push('name'); }
+    if (active.some((n) => norm(n.text) === norm(input.name))) { score += 2; reasons.push('exact name'); }
+    else if (active.some((n) => searchTermFor(n.text) === searchTermFor(input.name))) { score += 1; reasons.push('name'); }
     if (!active.length) { score -= 1; reasons.push('inactive name only'); }
 
     return { score, reasons };
@@ -478,21 +478,35 @@
 
   async function lookupRow(row, delayMs) {
     const input = inputOf(row);
-    const term = searchTermFor(input.name);
-    if (!term) { row.result = { ic_status: 'skipped' }; return; }
+    // Search with the exact name from your list (Inc, LLC and all).
+    // Only if that finds nothing, try once more without Inc/LLC/DBA.
+    const exact = clean(input.name);
+    if (!exact) { row.result = { ic_status: 'skipped' }; return; }
+    const loose = searchTermFor(input.name);
 
+    let term = exact;
     let doc = await getDoc(searchPath(term));
     await sleep(delayMs);
+    let candidates = isEmployerPage(doc) ? null : parseSearchResults(doc);
 
-    if (isEmployerPage(doc)) { // a single hit may open the report directly
+    if (candidates && !candidates.length && loose && norm(loose) !== norm(exact)) {
+      term = loose;
+      doc = await getDoc(searchPath(term));
+      await sleep(delayMs);
+      candidates = isEmployerPage(doc) ? null : parseSearchResults(doc);
+    }
+    const via = term === exact ? 'exact name search' : 'search without Inc/LLC ("' + term + '")';
+
+    if (!candidates) { // a single hit may open the report directly
       const emp = parseEmployer(doc);
-      row.result = buildResult(input, emp, 'only result', ui.src.value.trim());
+      row.result = buildResult(input, emp, via + '; only result', ui.src.value.trim());
       return;
     }
 
-    const candidates = parseSearchResults(doc);
-
-    if (!candidates.length) { row.result = { ic_status: 'not found', ic_how_matched: 'searched "' + term + '"' }; return; }
+    if (!candidates.length) {
+      row.result = { ic_status: 'not found', ic_how_matched: 'searched "' + exact + '"' + (term !== exact ? ' and "' + term + '"' : '') };
+      return;
+    }
 
     const { pick, scored } = pickCandidate(candidates, input);
     row.candidates = scored.slice(0, 8).map((c) => ({ wcirb: c.wcirb, names: c.names.map((n) => (n.inactive ? '*' : '') + n.text), address: c.address, score: c.score, reasons: c.reasons }));
@@ -506,7 +520,7 @@
     }
     const emp = parseEmployer(await getDoc(employerPath(pick.wcirb)));
     await sleep(delayMs);
-    row.result = buildResult(input, emp, 'address: ' + pick.reasons.join(', '), ui.src.value.trim());
+    row.result = buildResult(input, emp, via + '; matched on ' + pick.reasons.join(', '), ui.src.value.trim());
   }
 
   async function start() {
